@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist_Mono, Noto_Sans_TC, Noto_Serif_TC } from "next/font/google";
 import SiteHeader from "@/components/site-header";
 import SiteFooter from "@/components/site-footer";
+import SettingsDialog from "@/components/settings-dialog";
 import "./globals.css";
 
 // 中文字型檔案很大，不做 preload，由瀏覽器依實際用到的字按需下載
@@ -40,6 +41,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <SiteHeader />
         <main className="flex flex-1 flex-col">{children}</main>
         <SiteFooter />
+        <SettingsDialog />
       </body>
     </html>
   );

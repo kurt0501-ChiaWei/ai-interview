@@ -8,9 +8,11 @@
 // ============================================================================
 
 // OpenAI 官方 SDK，用來呼叫 ChatGPT 模型
-import OpenAI from "openai";
+// AuthenticationError / RateLimitError 用來辨識「Key 無效」和「額度不足」，回傳較友善的錯誤訊息
+import OpenAI, { AuthenticationError, RateLimitError } from "openai";
 // 從共用檔案引入常數與型別（前端 page.tsx 也用同一份，確保前後端資料格式一致）
 import {
+  API_KEY_HEADER, // 前端放使用者 API Key 的 header 名稱（x-openai-key）
   MAX_QUESTIONS, // 題數上限（10）
   MIN_QUESTIONS, // 題數下限（1）
   type ChatMessage, // 單則對話訊息：{ role: "interviewer" | "candidate", content: string }
@@ -19,9 +21,10 @@ import {
   type InterviewResponse, // 這支 API 回傳給前端的格式（出題 或 評分 二選一）
 } from "@/lib/interview";
 
-// 建立 OpenAI 客戶端。API 金鑰從環境變數讀取（寫在 .env.local，Next.js 啟動時會自動載入）
-// 金鑰只存在伺服器端，不會外洩到瀏覽器
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// BYOK（Bring Your Own Key）模式：
+// 伺服器「不」使用自己的 API Key，而是由使用者在前端設定自己的 Key（存在瀏覽器 localStorage），
+// 每次請求透過 x-openai-key header 帶過來，伺服器用它建立 OpenAI 客戶端後立即使用，不保存、不記錄。
+
 // 使用的模型：若 .env.local 有設定 OPENAI_MODEL 就用它，否則預設用 gpt-5.4-mini
 const MODEL = process.env.OPENAI_MODEL ?? "gpt-5.4-mini";
 
@@ -62,6 +65,7 @@ function toOpenAIMessages(messages: ChatMessage[]) {
 //   instruction：這一次要 AI 做的具體任務（出第幾題 / 進行評分）
 // ----------------------------------------------------------------------------
 async function askJSON<T>(
+  openai: OpenAI, // 用使用者 Key 建立的客戶端（每個請求各自一個）
   jobDescription: string,
   totalQuestions: number,
   messages: ChatMessage[],
@@ -93,10 +97,13 @@ async function askJSON<T>(
 // 在 route.ts 裡 export 一個名為 POST 的函式，Next.js 就會用它處理 POST 請求
 // ----------------------------------------------------------------------------
 export async function POST(request: Request) {
-  // 【步驟 1】檢查伺服器是否有設定 OpenAI 金鑰，沒有就不用往下做了
-  if (!process.env.OPENAI_API_KEY) {
-    return Response.json({ error: "伺服器未設定 OPENAI_API_KEY" }, { status: 500 });
+  // 【步驟 1】從 header 取出使用者自己的 OpenAI API Key，沒帶就回 401（未授權）
+  const apiKey = request.headers.get(API_KEY_HEADER)?.trim();
+  if (!apiKey) {
+    return Response.json({ error: "請先在設定中輸入你的 OpenAI API Key" }, { status: 401 });
   }
+  // 用使用者的 Key 建立這次請求專用的 OpenAI 客戶端（不放在模組層級，避免不同使用者共用）
+  const openai = new OpenAI({ apiKey });
 
   // 【步驟 2】解析前端送來的 JSON。若格式壞掉（不是合法 JSON）就回 400 錯誤
   let body: InterviewRequest;
@@ -143,6 +150,7 @@ export async function POST(request: Request) {
       const questionNumber = answered + 1;
       // 解構取出 AI 回傳 JSON 中的 question 欄位
       const { question } = await askJSON<{ question: string }>(
+        openai,
         jobDescription,
         totalQuestions,
         messages,
@@ -174,6 +182,7 @@ export async function POST(request: Request) {
           questionReviews?: { feedback: string; betterAnswer: string }[];
         }
       >(
+        openai,
         jobDescription,
         totalQuestions,
         messages,
@@ -203,9 +212,22 @@ questionReviews 必須剛好 ${totalQuestions} 筆，依題目順序排列。以
     return Response.json(result);
   } catch (err) {
     // 呼叫 OpenAI 失敗（網路問題、金鑰錯誤、額度用完、JSON 解析失敗……）都會跑到這裡
-    // 在伺服器終端機印出完整錯誤，方便除錯
-    console.error("[/api/interview]", err);
+
+    // Key 無效：回 401，前端會引導使用者回到設定重新輸入
+    if (err instanceof AuthenticationError) {
+      return Response.json({ error: "OpenAI API Key 無效，請到設定中確認你的 Key" }, { status: 401 });
+    }
+    // 超過速率限制或帳戶額度不足
+    if (err instanceof RateLimitError) {
+      return Response.json(
+        { error: "OpenAI 回報請求過多或額度不足，請稍後再試，或確認你的 OpenAI 帳戶餘額" },
+        { status: 429 },
+      );
+    }
+
+    // 其他錯誤：在伺服器終端機印出錯誤訊息方便除錯（只印 message，不印整個物件，避免帶出任何敏感資訊）
     const message = err instanceof Error ? err.message : "未知錯誤";
+    console.error("[/api/interview]", message);
     // 502 Bad Gateway：表示「我們的伺服器沒問題，是上游服務（OpenAI）出錯」
     return Response.json({ error: `面試官暫時無法回應：${message}` }, { status: 502 });
   }

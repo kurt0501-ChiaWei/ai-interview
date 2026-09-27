@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { openSettings, useApiKey } from "@/lib/api-key";
 import {
+  API_KEY_HEADER,
   DEFAULT_QUESTIONS,
   MAX_QUESTIONS,
   MIN_QUESTIONS,
@@ -57,6 +59,9 @@ export default function InterviewApp() {
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  // 錯誤是否和 API Key 有關（401），是的話在錯誤訊息旁顯示「前往設定」按鈕
+  const [keyError, setKeyError] = useState(false);
+  const apiKey = useApiKey();
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const validQuestionCount =
@@ -69,14 +74,18 @@ export default function InterviewApp() {
   async function callInterview(history: ChatMessage[]) {
     setLoading(true);
     setError("");
+    setKeyError(false);
     try {
       const res = await fetch("/api/interview", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", [API_KEY_HEADER]: apiKey },
         body: JSON.stringify({ jobDescription, totalQuestions, messages: history }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "發生錯誤");
+      if (!res.ok) {
+        setKeyError(res.status === 401);
+        throw new Error(data.error ?? "發生錯誤");
+      }
 
       const result = data as InterviewResponse;
       if (result.type === "question") {
@@ -97,6 +106,7 @@ export default function InterviewApp() {
   }
 
   async function start() {
+    if (!apiKey) return openSettings();
     if (!jobDescription.trim() || !validQuestionCount) return;
     setStage("interview");
     const ok = await callInterview([]);
@@ -124,6 +134,7 @@ export default function InterviewApp() {
     setAnswer("");
     setEvaluation(null);
     setError("");
+    setKeyError(false);
   }
 
   const answered = messages.filter((m) => m.role === "candidate").length;
@@ -169,6 +180,24 @@ export default function InterviewApp() {
       )}
 
       {/* ───────── Step 1：設定 ───────── */}
+      {stage === "setup" && !apiKey && (
+        <div className="animate-rise flex flex-col gap-4 rounded-2xl border border-accent/30 bg-accent-soft p-5 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-medium">先設定你的 OpenAI API Key</p>
+            <p className="mt-1 text-sm leading-relaxed text-muted">
+              本服務使用你自己的 Key 呼叫 OpenAI（BYOK），Key 只會存在你的瀏覽器。
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={openSettings}
+            className="shrink-0 rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-paper transition-colors hover:bg-accent hover:text-white"
+          >
+            設定 API Key
+          </button>
+        </div>
+      )}
+
       {stage === "setup" && (
         <section className="animate-rise flex flex-col gap-6 rounded-2xl border border-line bg-surface p-6 shadow-sm sm:p-8">
           <div className="flex flex-col gap-2">
@@ -222,10 +251,10 @@ export default function InterviewApp() {
           </div>
 
           <div className="flex flex-col-reverse items-stretch gap-3 border-t border-line pt-6 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-xs text-muted">面試內容只會送往 OpenAI 產生題目與評分，不會被保存。</p>
+            <p className="text-xs text-muted">面試內容與你的 Key 只會用來呼叫 OpenAI，伺服器不會保存。</p>
             <button
               onClick={start}
-              disabled={!jobDescription.trim() || loading || !validQuestionCount}
+              disabled={!apiKey || !jobDescription.trim() || loading || !validQuestionCount}
               className="rounded-full bg-accent px-6 py-3 font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
             >
               {loading ? "準備中…" : "開始面試 →"}
@@ -274,7 +303,18 @@ export default function InterviewApp() {
       )}
 
       {error && (
-        <p className="rounded-xl border border-accent/30 bg-accent-soft px-4 py-3 text-sm text-accent">{error}</p>
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-accent/30 bg-accent-soft px-4 py-3 text-sm text-accent">
+          <span>{error}</span>
+          {keyError && (
+            <button
+              type="button"
+              onClick={openSettings}
+              className="rounded-full border border-accent/40 px-3 py-1 text-xs font-medium transition-colors hover:bg-accent hover:text-white"
+            >
+              前往設定
+            </button>
+          )}
+        </div>
       )}
 
       {stage === "interview" && questionNumber > 0 && (

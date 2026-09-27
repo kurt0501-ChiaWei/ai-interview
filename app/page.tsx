@@ -34,12 +34,12 @@ const STEPS = [
 
 const FAQ = [
   {
-    q: "需要註冊或付費嗎？",
-    a: "不需要。打開就能直接開始模擬面試。",
+    q: "需要註冊或付費嗎？什麼是 BYOK？",
+    a: "不需要註冊，本服務也不向你收費。我們採用 BYOK（Bring Your Own Key）模式：在右上角的設定中填入你自己的 OpenAI API Key，模型使用費用會直接由你的 OpenAI 帳戶計算。",
   },
   {
     q: "我的面試內容會被儲存嗎？",
-    a: "我們的伺服器不會保存你的職缺描述或回答；內容只會在面試過程中送往 OpenAI 產生題目與評分。重新整理頁面後紀錄就會消失。",
+    a: "我們的伺服器不會保存你的職缺描述、回答或 API Key。Key 只存在你瀏覽器的 localStorage，每次請求時隨同面試內容送到伺服器、立即轉發給 OpenAI 產生題目與評分。重新整理頁面後面試紀錄就會消失。",
   },
   {
     q: "可以練習哪些職缺？",
@@ -180,12 +180,12 @@ export default function LandingPage() {
               貼上職缺描述，面試官會依職缺出題、針對你的回答追問，最後給你評分、具體建議，以及每一題的示範回答。
             </p>
             <div className="mt-10 flex flex-wrap items-center gap-4">
-              <PrimaryCTA>免費開始模擬面試</PrimaryCTA>
+              <PrimaryCTA>開始模擬面試</PrimaryCTA>
               <Link href="/#sample" className="px-2 py-3 text-sm font-medium text-ink underline-offset-4 hover:underline">
                 看看評分報告長什麼樣子
               </Link>
             </div>
-            <p className="mt-6 text-xs text-muted">不用註冊・不保存你的回答・支援任何職缺</p>
+            <p className="mt-6 text-xs text-muted">不用註冊・使用你自己的 OpenAI Key・不保存你的資料</p>
           </div>
           <div className="animate-rise [animation-delay:150ms]">
             <HeroMock />
